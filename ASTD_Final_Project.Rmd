@@ -1,0 +1,281 @@
+---
+title: "Analysis of Spatial & Temporal Data - Final Project"
+subtitle: <span style="color:dodgerblue">Air Quality Dataset - Indian Cities (2022-2025)</span>
+author: 
+  - Nguyen The Khai – 23BI14205
+  - Chau Tuan Minh  - 23BI14299
+  - Tran Gia Khanh  - 23BI14218
+  - Ngo Xuan Kien   - 23BI14239
+  - Ngo Minh Phuoc  - 23BI14361
+  - Nguyen Thanh Vinh - 23BI14453
+  - Tran Ngoc Hung    - 23BI14181
+affiliation: "Data Science Major"
+date: "`r Sys.Date()`"
+output: 
+  rmdformats::readthedown:
+    highlight: espresso
+    code_download: FALSE
+    code_folding: show
+    number_sections: TRUE
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+# Environment setting
+
+```{r}
+library(tidyverse)
+library(grid)
+library(gridExtra)
+library(plotly)
+library(lubridate)
+library(sf)
+library(ggplot2)
+
+library(RKaggle)
+```
+
+# Introduction
+
+# Dataset Description
+- A comprehensive hourly dataset tracking atmospheric conditions and air quality across 29 major Indian cities (28 states + Delhi) from 2022 to 2025. This dataset provides detailed insights into India's environmental patterns, pollution trends, and meteorological conditions.
+
+- Geographic Coverage
+
+    - Cities Covered: 29 major cities representing all 28 Indian states + Delhi
+    - Time Period: 2022 to 2025
+    - Records: 842,160 hourly observations
+    - Features: 63 parameters covering weather, pollution, and temporal data
+
+- Dataset Specifications
+
+    - Total Records: 842,160
+    - Features: 63 columns
+    - Temporal Resolution: Hourly data
+    - Period: 2022-2025 (4 years)
+
+- Indian Cities Included
+
+(Representing all 28 states + Union Territory of Delhi)
+
+    - Delhi
+    - Mumbai (Maharashtra)
+    - Chennai (Tamil Nadu)
+    - Kolkata (West Bengal)
+    - Bengaluru (Karnataka)
+    - Hyderabad (Telangana)
+    - Ahmedabad (Gujarat)
+    - Pune (Maharashtra)
+    - Jaipur (Rajasthan)
+    - Lucknow (Uttar Pradesh)
+    - And other major state capitals…
+
+- Acknowledgments
+
+Data compiled from various monitoring networks across India including:
+
+    - Central Pollution Control Board (CPCB)
+    - Indian Meteorological Department (IMD)
+    - System of Air Quality and Weather Forecasting And Research (SAFAR)
+
+## Data Source / Structure
+- [Air Quality Dataset: Indian Cities (2022-2025)](https://www.kaggle.com/datasets/bhautikvekariya21/air-quality-dataset-indian-cities-2022-2025?utm_source=chatgpt.com&select=INDIA_AQI_COMPLETE_20251126.csv)
+
+```{r}
+dat = get_dataset("bhautikvekariya21/air-quality-dataset-indian-cities-2022-2025")
+dat = dat[[2]]
+```
+
+```{r}
+glimpse(dat)
+class(dat)
+names(dat)
+```
+- Data types:
+
+    - Spatial: City, State, Latitude, Longitude
+
+    - Temporal: Datetime, Year, Month, Hour, Season
+
+    - Pollution: PM2_5_ugm3, PM10_ugm3, AQI
+
+    - Meteorology: temperature, humidity, wind, rain
+# Data Preprocessing
+
+```{r}
+dat_clean <- dat %>%
+  select(
+    City, State, Latitude, Longitude,
+    Datetime, Year, Month, Day, Hour,
+    Season, Time_of_Day,
+    Temp_2m_C, Humidity_Percent, Wind_Speed_10m_kmh,
+    Rain_mm, Is_Raining,
+    PM2_5_ugm3, PM10_ugm3, US_AQI
+  )
+
+head(dat_clean)
+```
+
+## Missing values handling
+
+```{r}
+dat_clean <- dat_clean %>%
+  filter(!is.na(US_AQI))
+
+colSums(is.na(dat_clean))
+```
+    - Rows with missing US AQI values (145 observations, <0.02% of the dataset) were removed to avoid introducing artificial values into the time series.
+
+## Variable selection
+
+# EDA
+
+## Temporal Analysis
+
+### Hourly pattern
+```{r}
+hourly_pm <- dat_clean %>%
+  group_by(Hour) %>%
+  summarise(
+    mean_pm25 = mean(PM2_5_ugm3, na.rm = TRUE)
+  )
+
+ggplot(hourly_pm, aes(x = Hour, y = mean_pm25)) +
+  geom_line() +
+  labs(
+    title = "Average PM2.5 by Hour of Day",
+    x = "Hour",
+    y = "PM2.5 (ug/m^3)"
+  )
+```
+
+### Monthly pattern 
+```{r}
+monthly_pm <- dat_clean %>%
+  group_by(Month) %>%
+  summarise(
+    mean_pm25 = mean(PM2_5_ugm3, na.rm = TRUE)
+  )
+
+ggplot(monthly_pm, aes(x = Month, y = mean_pm25)) +
+  geom_line() +
+  labs(
+    title = "Monthly Average PM2.5",
+    x = "Month",
+    y = "PM2.5 (ug/m^3)"
+  )
+```
+
+### Seasonal Pattern 
+```{r}
+ggplot(dat_clean, aes(x = Season, y = PM2_5_ugm3)) +
+  geom_boxplot() +
+  labs(
+    title = "PM2.5 Distribution by Season",
+    x = "Season",
+    y = "PM2.5 (ug/m^3)"
+  )
+```
+## Spatial Analysis
+
+### City-level Average PM2.5
+```{r}
+city_pm <- dat_clean %>%
+  group_by(City, State, Latitude, Longitude) %>%
+  summarise(
+    mean_pm25 = mean(PM2_5_ugm3, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+### Spatial Scatter 
+
+```{r}
+ggplot(city_pm, aes(x = Longitude, y = Latitude, color = mean_pm25)) +
+  geom_point() +
+  labs(
+    title = "Spatial Distribution of Average PM2.5",
+    x = "Longitude",
+    y = "Latitude",
+    color = "PM2.5"
+  )
+```
+
+# Weather & Pollution Relationship
+
+## Correlation Analysis
+
+### Temperature & PM2.5
+```{r}
+ggplot(dat_clean, aes(x = Temp_2m_C, y = PM2_5_ugm3)) +
+  geom_point(alpha = 0.3) +
+  labs(
+    title = "PM2.5 vs Temperature",
+    x = "Temperature (oC)",
+    y = "PM2.5 (ug/m^3)"
+  )
+```
+
+### Humidity vs PM2.5
+
+```{r}
+ggplot(dat_clean, aes(x = Humidity_Percent, y = PM2_5_ugm3)) +
+  geom_point(alpha = 0.3) +
+  labs(
+    title = "PM2.5 vs Humidity",
+    x = "Humidity (%)",
+    y = "PM2.5 (ug/m^3)"
+  )
+```
+
+### Rain effect 
+
+```{r}
+dat_clean %>%
+  group_by(Is_Raining) %>%
+  summarise(
+    mean_pm25 = mean(PM2_5_ugm3, na.rm = TRUE)
+  )
+ggplot(dat_clean, aes(x = factor(Is_Raining), y = PM2_5_ugm3)) +
+  geom_boxplot() +
+  labs(
+    title = "Effect of Rain on PM2.5",
+    x = "Is Raining (0 = No, 1 = Yes)",
+    y = "PM2.5 (ug/m^3)"
+  )
+```
+## Conditional Analysis
+
+# AQI Category Analysis
+
+```{r}
+ggplot(dat_clean, aes(x = US_AQI)) +
+  geom_histogram(bins = 30) +
+  labs(
+    title = "Distribution of US AQI",
+    x = "US AQI",
+    y = "Frequency"
+  )
+```
+# City comparison
+
+```{r}
+dat_clean %>%
+  filter(City %in% c("Delhi", "Mumbai")) %>%
+  group_by(City, Month) %>%
+  summarise(
+    mean_pm25 = mean(PM2_5_ugm3, na.rm = TRUE)
+  ) %>%
+  ggplot(aes(x = Month, y = mean_pm25, color = City)) +
+  geom_line() +
+  labs(
+    title = "Monthly PM2.5 Comparison: Delhi vs Mumbai",
+    x = "Month",
+    y = "PM2.5 (ug/m^3)"
+  )
+```
+
+
+
+
